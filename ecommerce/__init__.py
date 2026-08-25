@@ -1,1 +1,1 @@
-"""E-commerce scrapers."""
+"""E-commerce and marketplace collection adapters."""
