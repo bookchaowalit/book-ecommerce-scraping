@@ -2,7 +2,7 @@
 
 **Slug:** `bookchaowalit/book-ecommerce-scraping`  
 **Generated:** 2026-08-11 (bulk Book Dev closeout)  
-**Status:** collection adapter present; scheduler still runs from `book-job-scraping`
+**Status:** collection adapter present; this repo can schedule Kaidee via `setup_cron.sh`
 
 ## Purpose
 

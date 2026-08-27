@@ -18,12 +18,14 @@ Python
 ## How to run (local)
 
 ```bash
-# From this repository root
 python3 -m venv .venv && source .venv/bin/activate
-# Install whatever deps the script imports (often requests/httpx/bs4).
-# Prefer reading the scraper module docstring/imports first — no lockfile yet.
-python3 ecommerce/shopee_scraper.py
+pip install -r requirements.txt
+python3 scripts/run_marketplace.py
+bash setup_cron.sh install   # optional; every 6 hours
 ```
+
+Kaidee is the active bounded collector. Shopee/Lazada modules remain prototypes.
+Output stays in this repository's `data/exported/`.
 
 ## Boundaries
 
