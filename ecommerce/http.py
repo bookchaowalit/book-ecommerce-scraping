@@ -5,11 +5,18 @@ and retry only transient failures (timeouts, connection errors, HTTP 429 and
 5xx) with exponential backoff. Permanent client errors such as 403/404 fail
 immediately so a blocking site is not hammered. Callers space out successive
 pages with ``PAGE_DELAY_SECONDS``.
+
+The same helper lives in book-ecommerce-scraping (``ecommerce/http.py``) and
+book-restaurant-scraping (``restaurants/http.py``); only ``USER_AGENT``
+differs. Change both copies (and their ``tests/test_http.py``) together;
+book-news-scraping's ``news/http.py`` is a bytes-returning RSS variant.
 """
 
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Callable
 
 import httpx
@@ -28,11 +35,28 @@ class FetchError(RuntimeError):
     """Raised when a page cannot be fetched after the bounded retries."""
 
 
-def _retry_after_seconds(response: httpx.Response, fallback: float) -> float:
+def _retry_after_seconds(
+    response: httpx.Response,
+    fallback: float,
+    now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+) -> float:
+    """Honour ``Retry-After`` as delta-seconds or an HTTP-date, capped.
+
+    Unparseable values fall back to the exponential backoff delay.
+    """
+
     headers = getattr(response, "headers", None) or {}
     raw = str(headers.get("Retry-After", "")).strip()
     if raw.isdigit():
         return min(float(raw), MAX_RETRY_AFTER)
+    if raw:
+        try:
+            when = parsedate_to_datetime(raw)
+        except (TypeError, ValueError, IndexError):
+            return fallback
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return min(max((when - now()).total_seconds(), 0.0), MAX_RETRY_AFTER)
     return fallback
 
 

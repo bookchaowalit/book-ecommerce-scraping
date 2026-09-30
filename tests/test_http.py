@@ -5,7 +5,9 @@ from unittest.mock import patch
 
 import httpx
 
-from ecommerce.http import USER_AGENT, FetchError, polite_get
+from datetime import datetime, timezone
+
+from ecommerce.http import USER_AGENT, FetchError, _retry_after_seconds, polite_get
 
 URL = "https://site.example/page"
 
@@ -53,6 +55,26 @@ class PoliteGetTests(unittest.TestCase):
         with patch("ecommerce.http.httpx.get", return_value=_response(200, content=b"")):
             with self.assertRaises(ValueError):
                 polite_get(URL, source="Demo", sleep=lambda _s: None)
+
+    def test_retry_after_http_date_is_honoured_and_capped(self):
+        now = lambda: datetime(2026, 9, 30, 12, 0, 0, tzinfo=timezone.utc)  # noqa: E731
+        date = {"Retry-After": "Wed, 30 Sep 2026 12:00:07 GMT"}
+        self.assertEqual(_retry_after_seconds(_response(503, headers=date), 2.0, now), 7.0)
+        far = {"Retry-After": "Thu, 01 Oct 2026 12:00:00 GMT"}
+        self.assertEqual(_retry_after_seconds(_response(503, headers=far), 2.0, now), 60.0)
+        past = {"Retry-After": "Tue, 29 Sep 2026 12:00:00 GMT"}
+        self.assertEqual(_retry_after_seconds(_response(503, headers=past), 2.0, now), 0.0)
+
+    def test_unparseable_retry_after_falls_back_to_backoff(self):
+        for value in ("soon", "-5", "1.5"):
+            response = _response(429, headers={"Retry-After": value})
+            self.assertEqual(_retry_after_seconds(response, 4.0), 4.0)
+
+    def test_attempts_must_be_positive(self):
+        with patch("ecommerce.http.httpx.get") as get:
+            with self.assertRaises(ValueError):
+                polite_get(URL, source="Demo", attempts=0)
+        get.assert_not_called()
 
 
 if __name__ == "__main__":

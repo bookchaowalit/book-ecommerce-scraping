@@ -41,9 +41,14 @@ Output stays in this repository's `data/exported/`.
 `ecommerce/http.py` is the only network path: an identifying `User-Agent`
 (`book-ecommerce-scraping/1.0`), a 30 s timeout, and at most three attempts
 with exponential backoff that retry only timeouts, connection errors, HTTP 429
-(honouring `Retry-After`, capped at 60 s) and 5xx; 403/404 fail at once.
+(honouring `Retry-After` as seconds or an HTTP-date, capped at 60 s) and
+5xx; 403/404 fail at once. The helper is kept identical to
+book-restaurant-scraping's `restaurants/http.py` apart from the User-Agent.
 Kaidee pages (max 5 per run, 200 rows) are spaced 2 s apart. A malformed
-listing card is skipped instead of failing the whole page.
+listing card is skipped instead of failing the whole page. The raw JSON,
+snapshot CSV and history CSV are written atomically (`ecommerce/atomic_io.py`:
+temp file + fsync + `os.replace`), so a killed cron run never leaves a
+truncated export or a torn history row.
 
 Kaidee lists private sellers. Snapshot rows keep only `seller_role`, and the
 raw capture keeps only the listing arrays of `__NEXT_DATA__`

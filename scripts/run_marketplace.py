@@ -48,12 +48,14 @@ async def run_marketplace(output_dir: Path, *, dry_run: bool = False) -> list[di
     return results
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run book-ecommerce-scraping marketplace jobs")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "data" / "exported")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--dry-run", action="store_true", help="Print the bounded job plan without collection or writes")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.output_dir.exists() and not args.output_dir.is_dir():
+        parser.error(f"--output-dir is not a directory: {args.output_dir}")
     results = asyncio.run(run_marketplace(args.output_dir, dry_run=args.dry_run))
     if args.json:
         print(json.dumps(results, ensure_ascii=False))

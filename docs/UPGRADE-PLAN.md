@@ -2,7 +2,7 @@
 
 ## Current state
 
-Score: **7.5/10** (pass 1: 4 -> 7; pass 2: 7 -> 7.5) — one bounded,
+Score: **8/10** (pass 1: 4 -> 7; pass 2: 7 -> 7.5; pass 3: 7.5 -> 8) — one bounded,
 fixture-tested Kaidee collector with polite fetching, minimal redacted raw
 captures, single-pass filtering, lint and offline CI. No dead legacy modules.
 
@@ -19,6 +19,9 @@ captures, single-pass filtering, lint and offline CI. No dead legacy modules.
 - Add category-page URLs to `JOBS` (bounded by `MAX_PAGES`) once the downstream
   marketplace product needs them.
 - Add a conditional GET/ETag cache.
+- Extract `http.py` + `atomic_io.py` into a small shared package once a third
+  scraper repo needs them (today they are hand-synced with
+  book-restaurant-scraping).
 
 ## Done in this pass (pass 1)
 - `ecommerce/http.py`: identifying UA, 30 s timeout, bounded retry with
@@ -39,3 +42,13 @@ captures, single-pass filtering, lint and offline CI. No dead legacy modules.
   matching rows only.
 - Raw capture keeps only `__NEXT_DATA__` listing arrays (`listing_slices`)
   before redaction. Tests 14 -> 16.
+
+## Done in this pass (pass 3)
+- `ecommerce/http.py`: `Retry-After` HTTP-dates honoured (capped, never
+  negative; unparseable values fall back to backoff). Kept byte-identical to
+  book-restaurant-scraping except the UA; docstring records the sync rule.
+- `ecommerce/atomic_io.py`: raw JSON and snapshot CSV written atomically;
+  history "append" rewrites old + new atomically (no torn final row, repairs a
+  missing trailing newline).
+- `run_marketplace.main(argv)` is testable and rejects an `--output-dir` that
+  is a file. Tests 16 -> 25.

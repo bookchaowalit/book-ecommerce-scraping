@@ -9,7 +9,6 @@ durable lake ingestion and APIs.
 
 from __future__ import annotations
 
-import csv
 import json
 import math
 import re
@@ -24,6 +23,7 @@ try:
 except ImportError as exc:  # pragma: no cover - requirements.txt supplies both
     raise RuntimeError("httpx and beautifulsoup4 are required for Kaidee capture") from exc
 
+from ecommerce.atomic_io import append_csv_atomic, render_csv, write_text_atomic
 from ecommerce.http import PAGE_DELAY_SECONDS, polite_get
 
 
@@ -364,33 +364,20 @@ def fetch_pages(
 
 
 def write_raw(raw: dict[str, Any], output_dir: Path) -> Path:
-    output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "kaidee_classifieds_raw.json"
-    path.write_text(json.dumps(raw, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    write_text_atomic(path, json.dumps(raw, ensure_ascii=False, separators=(",", ":")))
     return path
 
 
 def write_snapshot(rows: list[dict[str, Any]], captured_at: str, output_dir: Path) -> Path:
-    output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "kaidee_classifieds.csv"
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=SNAPSHOT_FIELDS, extrasaction="ignore")
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({**row, "captured_at": captured_at})
+    write_text_atomic(path, render_csv(({**row, "captured_at": captured_at} for row in rows), SNAPSHOT_FIELDS))
     return path
 
 
 def append_history(rows: list[dict[str, Any]], captured_at: str, output_dir: Path) -> Path:
-    output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "kaidee_classifieds_history.csv"
-    exists = path.exists()
-    with path.open("a", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=HISTORY_FIELDS, extrasaction="ignore")
-        if not exists:
-            writer.writeheader()
-        for row in rows:
-            writer.writerow({**row, "captured_at": captured_at})
+    append_csv_atomic(path, ({**row, "captured_at": captured_at} for row in rows), HISTORY_FIELDS)
     return path
 
 
