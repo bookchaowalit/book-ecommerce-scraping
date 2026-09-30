@@ -36,7 +36,13 @@ async def run_marketplace(output_dir: Path, *, dry_run: bool = False) -> list[di
 
     for name, cls in JOBS:
         scraper = (cls or KaideeScraper)(urls=["https://www.kaidee.com/"], output_dir=output_dir)
-        batch = await scraper.run()
+        try:
+            batch = await scraper.run()
+        except Exception as exc:  # noqa: BLE001 - isolate each job
+            # Record only the exception class so page content never leaks.
+            results.append({"job": name, "error": type(exc).__name__})
+            print(f"[run_marketplace] {name}: failed ({type(exc).__name__})", file=sys.stderr)
+            continue
         results.extend(batch)
         print(f"[run_marketplace] {name}: {batch[0].get('count') if batch else 0}")
     return results
@@ -51,7 +57,7 @@ def main() -> int:
     results = asyncio.run(run_marketplace(args.output_dir, dry_run=args.dry_run))
     if args.json:
         print(json.dumps(results, ensure_ascii=False))
-    return 0
+    return 1 if any("error" in result for result in results) else 0
 
 
 if __name__ == "__main__":

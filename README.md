@@ -9,7 +9,9 @@ Prototype scrapers for public e-commerce listing pages (Shopee/Lazada style modu
 
 ## Entry points
 
-- `ecommerce/shopee_scraper.py, ecommerce/lazada_scraper.py`
+- `scripts/run_marketplace.py` -> `ecommerce/kaidee_scraper.py` (active, bounded Kaidee collector)
+- `ecommerce/shopee_scraper.py`, `ecommerce/lazada_scraper.py` (legacy prototypes; they import the old
+  monorepo `adapters` package and do not run from a standalone checkout)
 
 ## Stack
 
@@ -26,6 +28,34 @@ bash setup_cron.sh install   # optional; every 6 hours
 
 Kaidee is the active bounded collector. Shopee/Lazada modules remain prototypes.
 Output stays in this repository's `data/exported/`.
+
+## Polite collection and privacy
+
+`ecommerce/http.py` is the only network path: an identifying `User-Agent`
+(`book-ecommerce-scraping/1.0`), a 30 s timeout, and at most three attempts
+with exponential backoff that retry only timeouts, connection errors, HTTP 429
+(honouring `Retry-After`, capped at 60 s) and 5xx; 403/404 fail at once.
+Kaidee pages (max 5 per run, 200 rows) are spaced 2 s apart. A malformed
+listing card is skipped instead of failing the whole page.
+
+Kaidee lists private sellers. Snapshot rows keep only `seller_role`, and the
+raw `__NEXT_DATA__` capture is passed through `redact_personal_data` first:
+seller/member/user objects keep only `role`, and phone, email, LINE ID, name,
+address and session/token keys are dropped anywhere in the payload.
+`scripts/run_marketplace.py` reports a failed job as `{"job": ...,
+"error": "<ExceptionClass>"}` and exits 1.
+
+## Checks (offline)
+
+```bash
+pip install -r requirements.txt pytest ruff
+ruff check .
+python -m pytest -q
+python3 scripts/run_marketplace.py --dry-run --json   # plan only, no network
+```
+
+Tests replay `tests/fixtures/` and mock the HTTP layer; CI
+(`.github/workflows/ci.yml`) runs the same commands.
 
 ## Boundaries
 

@@ -8,7 +8,6 @@ Data: 25 tech articles per run with title, link, description, pubDate
 
 import asyncio
 import csv
-import json
 import logging
 import sys
 import xml.etree.ElementTree as ET

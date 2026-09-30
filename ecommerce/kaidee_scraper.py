@@ -15,14 +15,16 @@ import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+import time
+from typing import Any, Callable, Iterable
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 try:
-    import httpx
     from bs4 import BeautifulSoup
 except ImportError as exc:  # pragma: no cover - requirements.txt supplies both
     raise RuntimeError("httpx and beautifulsoup4 are required for Kaidee capture") from exc
+
+from ecommerce.http import PAGE_DELAY_SECONDS, polite_get
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +52,37 @@ SNAPSHOT_FIELDS = [
     "source_url",
 ]
 HISTORY_FIELDS = ["captured_at", "listing_id", "price_thb", "category", "location", "url"]
+# Seller/member objects are reduced to these keys in raw captures; everything
+# else (names, phone numbers, LINE IDs, avatars, member IDs) is dropped.
+MEMBER_KEYS_KEPT = frozenset({"role"})
+PERSONAL_KEYS = frozenset(
+    {
+        "phone",
+        "phonenumber",
+        "phoneno",
+        "mobile",
+        "tel",
+        "telephone",
+        "email",
+        "lineid",
+        "line_id",
+        "contactname",
+        "contact_name",
+        "sellername",
+        "seller_name",
+        "firstname",
+        "lastname",
+        "fullname",
+        "address",
+        "accesstoken",
+        "access_token",
+        "refreshtoken",
+        "cookie",
+        "cookies",
+        "session",
+    }
+)
+PERSON_CONTAINERS = frozenset({"member", "seller", "user", "owner", "currentuser", "profile"})
 
 
 def _utc_now() -> str:
@@ -129,6 +162,32 @@ def _listing_id(value: Any) -> str:
     return text
 
 
+def redact_personal_data(value: Any) -> Any:
+    """Return a copy of an embedded payload without seller/user personal data.
+
+    Raw captures are kept as evidence of what the page looked like, but they
+    must not retain private sellers' contact details or session material.
+    Person-like objects keep only ``MEMBER_KEYS_KEPT``; personal keys are
+    dropped anywhere in the tree.
+    """
+
+    if isinstance(value, list):
+        return [redact_personal_data(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    result: dict[str, Any] = {}
+    for key, item in value.items():
+        lowered = str(key).casefold()
+        if lowered in PERSONAL_KEYS:
+            continue
+        if lowered in PERSON_CONTAINERS:
+            if isinstance(item, dict):
+                result[key] = {k: v for k, v in item.items() if k in MEMBER_KEYS_KEPT}
+            continue
+        result[key] = redact_personal_data(item)
+    return result
+
+
 def _next_data(html: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "html.parser")
     script = soup.select_one("#__NEXT_DATA__")
@@ -191,7 +250,12 @@ def parse_html(
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in _candidate_ads(page_props):
-        listing_id = _listing_id(item.get("id"))
+        try:
+            listing_id = _listing_id(item.get("id"))
+            first_approved_at = _iso_datetime(item.get("firstApprovedTime"), "firstApprovedTime")
+        except ValueError:
+            # One malformed card must not discard the rest of the page.
+            continue
         if listing_id in seen:
             continue
         title = str(item.get("title") or "").strip()
@@ -224,7 +288,7 @@ def parse_html(
                 "seller_role": str((item.get("member") or {}).get("role") or "").strip()
                 if isinstance(item.get("member"), dict)
                 else "",
-                "first_approved_at": _iso_datetime(item.get("firstApprovedTime"), "firstApprovedTime"),
+                "first_approved_at": first_approved_at,
                 "source_url": canonical_url(source_url),
             }
         )
@@ -233,20 +297,23 @@ def parse_html(
     return payload, rows
 
 
-def fetch_pages(urls: list[str]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def fetch_pages(
+    urls: list[str],
+    *,
+    page_delay: float = PAGE_DELAY_SECONDS,
+    sleep: Callable[[float], None] = time.sleep,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Fetch pages politely; raw payloads are redacted before they are kept."""
+
     raw_pages: dict[str, Any] = {}
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for url in urls:
-        response = httpx.get(
-            url,
-            headers={"User-Agent": "book-job-scraping/1.0"},
-            timeout=30,
-            follow_redirects=True,
-        )
-        response.raise_for_status()
+    for index, url in enumerate(urls):
+        if index and page_delay > 0:
+            sleep(page_delay)
+        response = polite_get(url, source="Kaidee page", sleep=sleep)
         payload, page_rows = parse_html(response.text, url)
-        raw_pages[url] = payload
+        raw_pages[url] = redact_personal_data(payload)
         for row in page_rows:
             if row["listing_id"] not in seen:
                 seen.add(row["listing_id"])

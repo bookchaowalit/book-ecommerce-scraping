@@ -6,7 +6,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ecommerce.kaidee_scraper import KaideeScraper, canonical_url, parse_html
+from ecommerce.kaidee_scraper import (
+    KaideeScraper,
+    canonical_url,
+    fetch_pages,
+    parse_html,
+    redact_personal_data,
+)
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "kaidee_home.html"
@@ -48,7 +54,7 @@ class KaideeScraperTests(unittest.TestCase):
         html = self.html
         with tempfile.TemporaryDirectory() as temp_dir:
             scraper = KaideeScraper(urls=["https://www.kaidee.com/"], output_dir=temp_dir)
-            with patch("ecommerce.kaidee_scraper.httpx.get", return_value=FakeResponse(html)):
+            with patch("ecommerce.http.httpx.get", return_value=FakeResponse(html)):
                 result = asyncio.run(scraper.run())
 
             self.assertEqual(result[0]["source"], "kaidee_classifieds")
@@ -64,6 +70,62 @@ class KaideeScraperTests(unittest.TestCase):
             self.assertEqual(len(history), 2)
             raw = json.loads((output_dir / "kaidee_classifieds_raw.json").read_text(encoding="utf-8"))
             self.assertIn("pages", raw)
+
+    def test_raw_capture_drops_seller_personal_data(self):
+        payload = {
+            "props": {
+                "pageProps": {
+                    "latestAds": [
+                        {
+                            "id": 1,
+                            "title": "Bike",
+                            "member": {"role": "private", "name": "Somchai", "phone": "0812345678", "id": 99},
+                            "contact": {"phoneNumber": "0812345678", "lineId": "somchai"},
+                        }
+                    ],
+                    "currentUser": {"email": "someone@example.com"},
+                }
+            }
+        }
+        redacted = redact_personal_data(payload)
+        ad = redacted["props"]["pageProps"]["latestAds"][0]
+        self.assertEqual(ad["member"], {"role": "private"})
+        self.assertEqual(ad["contact"], {})
+        self.assertEqual(redacted["props"]["pageProps"]["currentUser"], {})
+        self.assertEqual(ad["title"], "Bike")
+        self.assertNotIn("0812345678", json.dumps(redacted))
+        # The input payload is not mutated.
+        self.assertEqual(payload["props"]["pageProps"]["latestAds"][0]["member"]["name"], "Somchai")
+
+    def test_malformed_cards_are_skipped_not_fatal(self):
+        next_data = {
+            "props": {
+                "pageProps": {
+                    "latestAds": [
+                        {"id": "abc", "title": "Bad id", "price": 10},
+                        {"id": 5, "title": "Bad time", "price": 10, "firstApprovedTime": "yesterday"},
+                        {"id": 6, "title": "No price", "price": None},
+                        {"id": 7, "title": "Good", "price": "1,500 บาท", "firstApprovedTime": "2026-09-01T00:00:00Z"},
+                    ]
+                }
+            }
+        }
+        html = f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(next_data)}</script>'
+        _payload, rows = parse_html(html)
+        self.assertEqual([row["listing_id"] for row in rows], ["7"])
+        self.assertEqual(rows[0]["price_thb"], 1500.0)
+        with self.assertRaises(ValueError):
+            parse_html("<html>no next data</html>")
+
+    def test_fetch_pages_spaces_requests(self):
+        sleeps = []
+        with patch("ecommerce.http.httpx.get", return_value=FakeResponse(self.html)) as get:
+            _raw, rows = fetch_pages(
+                ["https://www.kaidee.com/", "https://www.kaidee.com/c1-auto"], sleep=sleeps.append
+            )
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(sleeps, [2.0])
+        self.assertEqual(len(rows), 2)
 
 
 if __name__ == "__main__":
