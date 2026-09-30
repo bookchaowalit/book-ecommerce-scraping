@@ -10,6 +10,7 @@ from ecommerce.kaidee_scraper import (
     KaideeScraper,
     canonical_url,
     fetch_pages,
+    listing_slices,
     parse_html,
     redact_personal_data,
 )
@@ -126,6 +127,39 @@ class KaideeScraperTests(unittest.TestCase):
         self.assertEqual(get.call_count, 2)
         self.assertEqual(sleeps, [2.0])
         self.assertEqual(len(rows), 2)
+
+    def test_raw_capture_keeps_only_listing_slices(self):
+        payload = {
+            "buildId": "x",
+            "props": {
+                "pageProps": {
+                    "latestAds": [{"id": 1}],
+                    "navigation": {"menu": [1, 2]},
+                    "session": {"token": "secret"},
+                    "homepageData": {"recommendListing": [{"id": 2}], "banners": [{"img": "b"}]},
+                }
+            },
+        }
+        self.assertEqual(
+            listing_slices(payload),
+            {"latestAds": [{"id": 1}], "homepageData": {"recommendListing": [{"id": 2}]}},
+        )
+        self.assertEqual(listing_slices({"props": None}), {})
+
+    def test_run_applies_filters_once_through_fetch(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            scraper = KaideeScraper(urls=["https://www.kaidee.com/"], categories="บ้าน", output_dir=temp_dir)
+            with patch("ecommerce.http.httpx.get", return_value=FakeResponse(self.html)):
+                result = asyncio.run(scraper.run())
+            self.assertEqual(result[0]["count"], 1)
+            raw = json.loads((Path(temp_dir) / "kaidee_classifieds_raw.json").read_text(encoding="utf-8"))
+            page = raw["pages"]["https://www.kaidee.com/"]
+            self.assertNotIn("props", page)
+
+            too_expensive = KaideeScraper(urls=["https://www.kaidee.com/"], min_price=10**9, output_dir=temp_dir)
+            with patch("ecommerce.http.httpx.get", return_value=FakeResponse(self.html)):
+                with self.assertRaisesRegex(ValueError, "after configured filters"):
+                    asyncio.run(too_expensive.run())
 
 
 if __name__ == "__main__":

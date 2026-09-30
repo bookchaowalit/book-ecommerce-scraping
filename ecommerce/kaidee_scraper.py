@@ -216,15 +216,41 @@ def _href_by_id(html: str) -> dict[str, str]:
     return links
 
 
+LISTING_KEYS = ("latestAd", "latestAds")
+HOMEPAGE_LISTING_KEYS = ("recommendListing", "latestCategoryAds", "recentlyViewAds")
+
+
+def listing_slices(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return only the listing arrays of a ``__NEXT_DATA__`` payload.
+
+    Raw captures are evidence of the listing data that was parsed; the rest of
+    the page state (navigation, session, ads config) is not kept.
+    """
+
+    props = payload.get("props")
+    page_props = props.get("pageProps") if isinstance(props, dict) else None
+    if not isinstance(page_props, dict):
+        return {}
+    kept: dict[str, Any] = {
+        key: page_props[key] for key in LISTING_KEYS if isinstance(page_props.get(key), list)
+    }
+    homepage = page_props.get("homepageData")
+    if isinstance(homepage, dict):
+        home = {key: homepage[key] for key in HOMEPAGE_LISTING_KEYS if isinstance(homepage.get(key), list)}
+        if home:
+            kept["homepageData"] = home
+    return kept
+
+
 def _candidate_ads(page_props: dict[str, Any]) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
-    for key in ("latestAd", "latestAds"):
+    for key in LISTING_KEYS:
         values = page_props.get(key)
         if isinstance(values, list):
             candidates.extend(item for item in values if isinstance(item, dict))
     homepage = page_props.get("homepageData")
     if isinstance(homepage, dict):
-        for key in ("recommendListing", "latestCategoryAds", "recentlyViewAds"):
+        for key in HOMEPAGE_LISTING_KEYS:
             values = homepage.get(key)
             if isinstance(values, list):
                 candidates.extend(item for item in values if isinstance(item, dict))
@@ -302,8 +328,15 @@ def fetch_pages(
     *,
     page_delay: float = PAGE_DELAY_SECONDS,
     sleep: Callable[[float], None] = time.sleep,
+    categories: Iterable[str] | str | None = None,
+    min_price: float | None = None,
+    max_price: float | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Fetch pages politely; raw payloads are redacted before they are kept."""
+    """Fetch pages politely and parse them with the configured filters.
+
+    Only the listing slices of each page payload are kept in the raw capture,
+    and they are redacted of personal data first.
+    """
 
     raw_pages: dict[str, Any] = {}
     rows: list[dict[str, Any]] = []
@@ -312,14 +345,21 @@ def fetch_pages(
         if index and page_delay > 0:
             sleep(page_delay)
         response = polite_get(url, source="Kaidee page", sleep=sleep)
-        payload, page_rows = parse_html(response.text, url)
-        raw_pages[url] = redact_personal_data(payload)
+        payload, page_rows = parse_html(
+            response.text, url, categories=categories, min_price=min_price, max_price=max_price
+        )
+        raw_pages[url] = redact_personal_data(listing_slices(payload))
         for row in page_rows:
             if row["listing_id"] not in seen:
                 seen.add(row["listing_id"])
                 rows.append(row)
     if not rows:
-        raise ValueError("Kaidee pages contained no priced listings")
+        filtered = categories or min_price is not None or max_price is not None
+        raise ValueError(
+            "Kaidee pages contained no listings after configured filters"
+            if filtered
+            else "Kaidee pages contained no priced listings"
+        )
     return {"pages": raw_pages}, rows[:MAX_ROWS]
 
 
@@ -379,19 +419,13 @@ class KaideeScraper:
         self.output_dir = Path(output_dir) if output_dir else OUTPUT_DIR
 
     async def run(self, **_: Any) -> list[dict[str, Any]]:
-        raw, rows = fetch_pages(self.urls)
+        raw, filtered = fetch_pages(
+            self.urls,
+            categories=self.categories,
+            min_price=self.min_price,
+            max_price=self.max_price,
+        )
         captured_at = _utc_now()
-        filtered: list[dict[str, Any]] = []
-        for row in rows:
-            if self.categories and row["category"].casefold() not in {value.casefold() for value in self.categories}:
-                continue
-            if self.min_price is not None and row["price_thb"] < self.min_price:
-                continue
-            if self.max_price is not None and row["price_thb"] > self.max_price:
-                continue
-            filtered.append(row)
-        if not filtered:
-            raise ValueError("Kaidee pages contained no listings after configured filters")
         raw_path = write_raw(raw, self.output_dir)
         snapshot_path = write_snapshot(filtered, captured_at, self.output_dir)
         history_path = append_history(filtered, captured_at, self.output_dir)

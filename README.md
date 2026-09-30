@@ -5,13 +5,19 @@
 
 ## Purpose
 
-Prototype scrapers for public e-commerce listing pages (Shopee/Lazada style modules).
+Bounded collection of public Thai marketplace listings (currently Kaidee classifieds).
 
 ## Entry points
 
 - `scripts/run_marketplace.py` -> `ecommerce/kaidee_scraper.py` (active, bounded Kaidee collector)
-- `ecommerce/shopee_scraper.py`, `ecommerce/lazada_scraper.py` (legacy prototypes; they import the old
-  monorepo `adapters` package and do not run from a standalone checkout)
+
+The former `ecommerce/shopee_scraper.py` and `ecommerce/lazada_scraper.py` were
+removed in the 2026-09 upgrade pass. Despite their names, the first was a
+Notebookspec tech-news RSS reader (news belongs in `book-news-scraping`) and the
+second an older Kaidee `__NEXT_DATA__` scraper superseded by
+`ecommerce/kaidee_scraper.py`. Both imported the retired monorepo `adapters`
+package and never ran from a standalone checkout; recover them from Git
+history if needed.
 
 ## Stack
 
@@ -26,7 +32,8 @@ python3 scripts/run_marketplace.py
 bash setup_cron.sh install   # optional; every 6 hours
 ```
 
-Kaidee is the active bounded collector. Shopee/Lazada modules remain prototypes.
+Kaidee is the only collector. Category/price filters are applied once, while
+parsing, so the 200-row cap counts matching listings only.
 Output stays in this repository's `data/exported/`.
 
 ## Polite collection and privacy
@@ -39,7 +46,8 @@ Kaidee pages (max 5 per run, 200 rows) are spaced 2 s apart. A malformed
 listing card is skipped instead of failing the whole page.
 
 Kaidee lists private sellers. Snapshot rows keep only `seller_role`, and the
-raw `__NEXT_DATA__` capture is passed through `redact_personal_data` first:
+raw capture keeps only the listing arrays of `__NEXT_DATA__`
+(`listing_slices`) and passes them through `redact_personal_data` first:
 seller/member/user objects keep only `role`, and phone, email, LINE ID, name,
 address and session/token keys are dropped anywhere in the payload.
 `scripts/run_marketplace.py` reports a failed job as `{"job": ...,

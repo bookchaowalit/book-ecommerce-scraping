@@ -2,9 +2,9 @@
 
 ## Current state
 
-Score: **7/10** (was 4/10) — one bounded, fixture-tested Kaidee collector with
-polite fetching, raw-capture PII redaction, lint and offline CI. Shopee/Lazada
-remain non-runnable legacy prototypes.
+Score: **7.5/10** (pass 1: 4 -> 7; pass 2: 7 -> 7.5) — one bounded,
+fixture-tested Kaidee collector with polite fetching, minimal redacted raw
+captures, single-pass filtering, lint and offline CI. No dead legacy modules.
 
 ## Backlog
 
@@ -12,20 +12,15 @@ remain non-runnable legacy prototypes.
 - (none open)
 
 ### P1
-- Delete or port `ecommerce/shopee_scraper.py` and `ecommerce/lazada_scraper.py`
-  (they import the missing monorepo `adapters` package). If ported, give each
-  a fixture test first.
-- Store only the listing slices of `__NEXT_DATA__` in the raw capture instead
-  of the whole (redacted) page payload.
-- `KaideeScraper.run` re-applies category/price filters that `parse_html`
-  already supports; pass them through once and drop the duplicate loop.
+- A second marketplace source (e.g. an official Shopee/Lazada affiliate or
+  product API) only if a downstream product needs it; fixture test first.
 
 ### P2
 - Add category-page URLs to `JOBS` (bounded by `MAX_PAGES`) once the downstream
   marketplace product needs them.
 - Add a conditional GET/ETag cache.
 
-## Done in this pass
+## Done in this pass (pass 1)
 - `ecommerce/http.py`: identifying UA, 30 s timeout, bounded retry with
   backoff for 429/5xx/timeouts only, capped `Retry-After`; 2 s page spacing.
 - Raw Kaidee payloads are redacted of seller/user personal data before write.
@@ -34,3 +29,13 @@ remain non-runnable legacy prototypes.
 - `run_marketplace.py`: job failures reported by exception class; exit 1.
 - Tests 5 -> 14; added ruff, pytest config, CI; README entry points fixed;
   untracked committed `__pycache__`.
+
+## Done in this pass (pass 2)
+- Removed `ecommerce/shopee_scraper.py` (actually a Notebookspec news RSS
+  reader) and `ecommerce/lazada_scraper.py` (an older Kaidee scraper superseded
+  by `kaidee_scraper.py`); both imported the retired monorepo `adapters`.
+- Category/price filters now pass through `fetch_pages` -> `parse_html` once;
+  the duplicate loop in `KaideeScraper.run` is gone and the 200-row cap counts
+  matching rows only.
+- Raw capture keeps only `__NEXT_DATA__` listing arrays (`listing_slices`)
+  before redaction. Tests 14 -> 16.
