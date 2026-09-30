@@ -162,5 +162,34 @@ class KaideeScraperTests(unittest.TestCase):
                     asyncio.run(too_expensive.run())
 
 
+class NumericEdgeCaseTests(unittest.TestCase):
+    def test_price_separators_and_thai_digits(self):
+        from ecommerce.kaidee_scraper import _price_value
+
+        cases = {
+            "฿1,299": 1299.0,
+            "1,299.50 บาท": 1299.5,
+            "1.234,56": 1234.56,
+            "12,50": 12.5,
+            "1.234.567": 1234567.0,
+            "๑,๒๙๙": 1299.0,
+        }
+        for raw, expected in cases.items():
+            self.assertEqual(_price_value(raw), expected, raw)
+
+    def test_non_finite_price_bounds_are_rejected(self):
+        for bound in ("nan", "inf"):
+            with self.assertRaises(ValueError):
+                KaideeScraper(urls=["https://www.kaidee.com/"], min_price=bound)
+
+    def test_listing_id_must_be_ascii_digits(self):
+        from ecommerce.kaidee_scraper import _listing_id
+
+        self.assertEqual(_listing_id(123), "123")
+        for raw in ("๑๒๓", "\u00b2"):
+            with self.assertRaises(ValueError):
+                _listing_id(raw)
+
+
 if __name__ == "__main__":
     unittest.main()

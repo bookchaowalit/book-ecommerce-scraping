@@ -52,3 +52,11 @@ captures, single-pass filtering, lint and offline CI. No dead legacy modules.
   missing trailing newline).
 - `run_marketplace.main(argv)` is testable and rejects an `--output-dir` that
   is a file. Tests 16 -> 25.
+- Numeric edge cases: `_price_value` read "1.234,56" as 1.23456 and "12,50"
+  as 1250 (commas stripped blindly); it now picks the decimal separator
+  (`_parse_grouped_number`) and maps Thai digits to ASCII. `min_price` /
+  `max_price` of "nan"/"inf" are rejected (NaN silently disabled the filter).
+  `_listing_id` requires ASCII digits ("๑๒๓" became a listing ID).
+  `_retry_after_seconds` crashed on a `Retry-After: ²` header ("²".isdigit()
+  is True, float() is not); it now falls back to backoff. Regression tests
+  in `tests/test_kaidee_scraper.py` and `tests/test_http.py`.

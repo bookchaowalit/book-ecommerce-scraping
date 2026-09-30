@@ -47,7 +47,7 @@ def _retry_after_seconds(
 
     headers = getattr(response, "headers", None) or {}
     raw = str(headers.get("Retry-After", "")).strip()
-    if raw.isdigit():
+    if raw.isascii() and raw.isdigit():  # "²".isdigit() is True but float() fails
         return min(float(raw), MAX_RETRY_AFTER)
     if raw:
         try:

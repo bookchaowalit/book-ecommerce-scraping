@@ -33,7 +33,7 @@ SOURCE_URL = "https://www.kaidee.com/"
 MAX_PAGES = 5
 MAX_ROWS = 200
 LISTING_ID_RE = re.compile(r"(?:product|ad)[-_](\d+)", re.IGNORECASE)
-PRICE_RE = re.compile(r"\d+(?:[,.]\d+)*")
+PRICE_RE = re.compile(r"[0-9]+(?:[,.][0-9]+)*")
 ALLOWED_HOST = re.compile(r"(?:[a-z0-9-]+\.)*kaidee\.com", re.IGNORECASE)
 SNAPSHOT_FIELDS = [
     "captured_at",
@@ -121,21 +121,57 @@ def normalize_urls(urls: Iterable[str] | str | None) -> list[str]:
     return normalized
 
 
+_THAI_DIGITS = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
+
+
+def _parse_grouped_number(text: str) -> float | None:
+    """Parse "1,299", "1,299.50", "1.234,56", "12,50" or "1.234.567".
+
+    With both separators the last one is the decimal point; a single comma
+    followed by one or two digits is a decimal comma; repeated separators of
+    one kind are thousands groups. Plain ``float()`` on the comma-stripped
+    text read "1.234,56" as 1.23456 and "12,50" as 1250.
+    """
+
+    commas, dots = text.count(","), text.count(".")
+    if commas and dots:
+        decimal = "," if text.rfind(",") > text.rfind(".") else "."
+        thousands = "." if decimal == "," else ","
+        if text.count(decimal) > 1:
+            return None
+        text = text.replace(thousands, "").replace(decimal, ".")
+    elif commas:
+        head, _, tail = text.partition(",")
+        text = f"{head}.{tail}" if commas == 1 and len(tail) in (1, 2) else text.replace(",", "")
+    elif dots > 1:
+        text = text.replace(".", "")
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
 def _price_value(value: Any) -> float | None:
     if isinstance(value, bool) or value is None:
         return None
     if isinstance(value, (int, float)):
-        number = float(value)
+        number: float | None = float(value)
     else:
-        match = PRICE_RE.search(str(value).replace(" ", ""))
+        match = PRICE_RE.search(str(value).translate(_THAI_DIGITS).replace(" ", ""))
         if not match:
             return None
-        try:
-            number = float(match.group(0).replace(",", ""))
-        except ValueError:
-            return None
-    if not math.isfinite(number) or number <= 0:
+        number = _parse_grouped_number(match.group(0))
+    if number is None or not math.isfinite(number) or number <= 0:
         return None
+    return number
+
+
+def _finite_bound(value: float | str | None, name: str) -> float | None:
+    if value in (None, ""):
+        return None
+    number = float(value)  # type: ignore[arg-type]
+    if not math.isfinite(number):
+        raise ValueError(f"{name} must be a finite number")
     return number
 
 
@@ -157,7 +193,7 @@ def _listing_id(value: Any) -> str:
     if isinstance(value, bool) or value in (None, ""):
         raise ValueError("Kaidee listing ID is required")
     text = str(value).strip()
-    if not text.isdigit() or int(text) <= 0:
+    if not (text.isascii() and text.isdigit()) or int(text) <= 0:
         raise ValueError("Kaidee listing ID must be a positive integer")
     return text
 
@@ -395,8 +431,8 @@ class KaideeScraper:
     ) -> None:
         self.urls = normalize_urls(urls)
         self.categories = _as_values(categories, [])
-        self.min_price = float(min_price) if min_price not in (None, "") else None
-        self.max_price = float(max_price) if max_price not in (None, "") else None
+        self.min_price = _finite_bound(min_price, "min_price")
+        self.max_price = _finite_bound(max_price, "max_price")
         if self.min_price is not None and self.min_price < 0:
             raise ValueError("min_price must be non-negative")
         if self.max_price is not None and self.max_price <= 0:

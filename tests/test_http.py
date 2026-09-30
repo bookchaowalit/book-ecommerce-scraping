@@ -66,7 +66,8 @@ class PoliteGetTests(unittest.TestCase):
         self.assertEqual(_retry_after_seconds(_response(503, headers=past), 2.0, now), 0.0)
 
     def test_unparseable_retry_after_falls_back_to_backoff(self):
-        for value in ("soon", "-5", "1.5"):
+        # b"\xb2" decodes (latin-1) to "²", which str.isdigit() accepts.
+        for value in ("soon", "-5", "1.5", b"\xb2"):
             response = _response(429, headers={"Retry-After": value})
             self.assertEqual(_retry_after_seconds(response, 4.0), 4.0)
 
