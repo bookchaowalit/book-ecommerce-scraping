@@ -1,5 +1,7 @@
 """Crash-safe writes for the exports under ``data/exported/``.
 
+Kept identical to book-restaurant-scraping's ``restaurants/atomic_io.py``.
+
 ``open(path, "w")`` truncates the target before new content is written, so a
 cron run killed mid-write (timeout, OOM, power loss) leaves an empty or
 half-written snapshot. ``write_text_atomic`` writes a temporary file in the
