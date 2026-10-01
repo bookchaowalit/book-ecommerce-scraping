@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -20,6 +21,15 @@ class RunMarketplaceTests(unittest.TestCase):
             result = asyncio.run(run_marketplace(Path(directory), dry_run=True))
         self.assertEqual(result[0]["status"], "dry-run")
         self.assertEqual(result[0]["network"], "not-used")
+
+    def test_failed_job_reports_error_class_only(self):
+        async def fake_run(self, **_kwargs):
+            raise RuntimeError("page content must not leak")
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("ecommerce.kaidee_scraper.KaideeScraper.run", fake_run):
+                result = asyncio.run(run_marketplace(Path(directory)))
+        self.assertEqual(result, [{"job": "kaidee_classifieds", "error": "RuntimeError"}])
 
 
 if __name__ == "__main__":

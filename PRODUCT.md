@@ -17,8 +17,8 @@ See `README.md` for install and run instructions when present.
 ## Current adapters
 
 - `ecommerce/kaidee_scraper.py`
-- `ecommerce/shopee_scraper.py` (legacy prototype)
-- `ecommerce/lazada_scraper.py` (legacy prototype)
+
+(The legacy Shopee/Lazada-named prototypes were removed; see README.)
 
 Tests live under `tests/` for Kaidee. Runtime collection remains scheduled by
 `book-job-scraping` until this repository has its own cron.
@@ -38,11 +38,11 @@ Tests live under `tests/` for Kaidee. Runtime collection remains scheduled by
 
 ## Purpose
 
-Prototype scrapers for public e-commerce listing pages (Shopee/Lazada style modules).
+Bounded collection of public Thai marketplace listings (currently Kaidee classifieds).
 
 ## Entry points
 
-- `ecommerce/shopee_scraper.py, ecommerce/lazada_scraper.py`
+- `scripts/run_marketplace.py` -> `ecommerce/kaidee_scraper.py`
 
 ## Stack
 
